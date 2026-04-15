@@ -15,7 +15,15 @@ from sqlalchemy import func, select
 
 from bot import bot
 from config import RAZRAB
-from db.models import AsyncSessionLocal, Contractor, PermanentPass, Resident, TemporaryPass
+from db.models import (
+    AsyncSessionLocal,
+    Contractor,
+    Manager,
+    PermanentPass,
+    Resident,
+    Security,
+    TemporaryPass,
+)
 from filters import IsAdminOrManager
 from max_helpers import callback_ack, edit_or_send_callback
 
@@ -145,6 +153,36 @@ async def export_statistics_to_xlsx(event: MessageCallback) -> None:
                         contr.position,
                         contr.tg_id,
                         "Активен" if contr.status else "Неактивен",
+                    ]
+                )
+
+            ws_mgr = wb.create_sheet("Менеджеры")
+            managers = await session.execute(select(Manager))
+            ws_mgr.append(["ID", "Телефон", "ФИО", "TG ID", "Username", "Статус"])
+            for mgr in managers.scalars():
+                ws_mgr.append(
+                    [
+                        mgr.id,
+                        mgr.phone,
+                        mgr.fio,
+                        mgr.tg_id,
+                        mgr.username,
+                        "Активен" if mgr.status else "Неактивен",
+                    ]
+                )
+
+            ws_sec = wb.create_sheet("СБ")
+            securities = await session.execute(select(Security))
+            ws_sec.append(["ID", "Телефон", "ФИО", "TG ID", "Username", "Статус"])
+            for sec in securities.scalars():
+                ws_sec.append(
+                    [
+                        sec.id,
+                        sec.phone,
+                        sec.fio,
+                        sec.tg_id,
+                        sec.username,
+                        "Активен" if sec.status else "Неактивен",
                     ]
                 )
 
