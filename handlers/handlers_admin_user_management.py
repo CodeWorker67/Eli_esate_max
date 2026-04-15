@@ -31,8 +31,21 @@ from max_helpers import (
     user_id_from_message,
 )
 from config import ADMIN_IDS, PAGE_SIZE, RAZRAB
-from db.models import Manager, Security, Resident, Contractor, RegistrationRequest, \
-    ContractorRegistrationRequest, AsyncSessionLocal, ResidentContractorRequest, PermanentPass, TemporaryPass, Appeal
+from db.models import (
+    Appeal,
+    AsyncSessionLocal,
+    Contractor,
+    ContractorContractorRequest,
+    ContractorRegistrationRequest,
+    Manager,
+    PermanentPass,
+    RegistrationRequest,
+    Resident,
+    ResidentContractorRequest,
+    Security,
+    TempPassYooKassaPayment,
+    TemporaryPass,
+)
 from filters import IsAdmin, IsAdminOrManager
 
 router = Router(router_id="admin_user_management")
@@ -142,6 +155,148 @@ async def cmd_test_admin(event: MessageCreated):
     admin_label = f"{sender.first_name} {(sender.last_name or '').strip()}".strip()
     text = fio_html(admin_label or sender.first_name, sender.user_id)
     await answer_message(event, text)
+
+
+_DELETE_ROLE_ALIASES = {
+    "manager": "manager",
+    "менеджер": "manager",
+    "security": "security",
+    "sb": "security",
+    "сб": "security",
+    "resident": "resident",
+    "резидент": "resident",
+    "contractor": "contractor",
+    "подрядчик": "contractor",
+}
+
+
+async def _admin_cmd_delete_resident(session, resident_id: int) -> bool:
+    if not await session.get(Resident, resident_id):
+        return False
+    tp_ids = (
+        await session.execute(
+            select(TemporaryPass.id).where(TemporaryPass.resident_id == resident_id)
+        )
+    ).scalars().all()
+    if tp_ids:
+        await session.execute(
+            delete(TempPassYooKassaPayment).where(
+                TempPassYooKassaPayment.temporary_pass_id.in_(tp_ids)
+            )
+        )
+    await session.execute(delete(TemporaryPass).where(TemporaryPass.resident_id == resident_id))
+    await session.execute(delete(PermanentPass).where(PermanentPass.resident_id == resident_id))
+    await session.execute(delete(Appeal).where(Appeal.resident_id == resident_id))
+    await session.execute(
+        delete(RegistrationRequest).where(RegistrationRequest.resident_id == resident_id)
+    )
+    await session.execute(
+        delete(ResidentContractorRequest).where(
+            ResidentContractorRequest.resident_id == resident_id
+        )
+    )
+    await session.execute(delete(Resident).where(Resident.id == resident_id))
+    return True
+
+
+async def _admin_cmd_delete_contractor(session, contractor_id: int) -> bool:
+    if not await session.get(Contractor, contractor_id):
+        return False
+    tp_ids = (
+        await session.execute(
+            select(TemporaryPass.id).where(TemporaryPass.contractor_id == contractor_id)
+        )
+    ).scalars().all()
+    if tp_ids:
+        await session.execute(
+            delete(TempPassYooKassaPayment).where(
+                TempPassYooKassaPayment.temporary_pass_id.in_(tp_ids)
+            )
+        )
+    await session.execute(
+        delete(TemporaryPass).where(TemporaryPass.contractor_id == contractor_id)
+    )
+    await session.execute(
+        delete(ContractorRegistrationRequest).where(
+            ContractorRegistrationRequest.contractor_id == contractor_id
+        )
+    )
+    await session.execute(
+        delete(ContractorContractorRequest).where(
+            ContractorContractorRequest.contractor_id == contractor_id
+        )
+    )
+    await session.execute(delete(Contractor).where(Contractor.id == contractor_id))
+    return True
+
+
+@router.message_created(Command("delete"), IsAdmin())
+async def cmd_delete_user_by_id(event: MessageCreated):
+    """Удаление менеджера / СБ / резидента / подрядчика по ID (только админ)."""
+    text = text_from_message(event)
+    if not text:
+        return
+    parts = text.split()
+    if len(parts) < 3:
+        await answer_message(
+            event,
+            "Использование: /delete <тип> <id>\n\n"
+            "Типы: manager (менеджер), security (сб), resident (резидент), "
+            "contractor (подрядчик)\n\n"
+            "Пример: /delete manager 2",
+        )
+        return
+    role_key = _DELETE_ROLE_ALIASES.get(parts[1].strip().lower())
+    if role_key is None:
+        await answer_message(
+            event,
+            f"Неизвестный тип «{parts[1]}». Укажите: manager, security, resident или contractor.",
+        )
+        return
+    try:
+        pk = int(parts[2])
+    except ValueError:
+        await answer_message(event, "Второй аргумент должен быть числовым ID.")
+        return
+    if pk < 1:
+        await answer_message(event, "ID должен быть положительным числом.")
+        return
+
+    try:
+        async with AsyncSessionLocal() as session:
+            if role_key == "manager":
+                row = await session.get(Manager, pk)
+                if not row:
+                    await answer_message(event, f"Менеджер с ID {pk} не найден.")
+                    return
+                await session.delete(row)
+            elif role_key == "security":
+                row = await session.get(Security, pk)
+                if not row:
+                    await answer_message(event, f"Сотрудник СБ с ID {pk} не найден.")
+                    return
+                await session.delete(row)
+            elif role_key == "resident":
+                ok = await _admin_cmd_delete_resident(session, pk)
+                if not ok:
+                    await answer_message(event, f"Резидент с ID {pk} не найден.")
+                    return
+            else:
+                ok = await _admin_cmd_delete_contractor(session, pk)
+                if not ok:
+                    await answer_message(event, f"Подрядчик с ID {pk} не найден.")
+                    return
+            await session.commit()
+        label = {
+            "manager": "Менеджер",
+            "security": "СБ",
+            "resident": "Резидент",
+            "contractor": "Подрядчик",
+        }[role_key]
+        await answer_message(event, f"✅ {label} id={pk} удалён из базы.")
+    except Exception as e:
+        await bot.send_message(user_id=RAZRAB, text=f"{user_id_from_message(event)} — /delete: {e!s}")
+        await answer_message(event, f"❌ Ошибка при удалении: {e!s}")
 
 
 @router.message_created(CommandStart())
