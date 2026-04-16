@@ -22,6 +22,7 @@ from db.models import (
     PermanentPass,
     Resident,
     Security,
+    TempPassYooKassaPayment,
     TemporaryPass,
 )
 from filters import IsAdminOrManager
@@ -295,6 +296,146 @@ async def export_statistics_to_xlsx(event: MessageCallback) -> None:
                         tp.purpose,
                         tp.visit_date.strftime("%Y-%m-%d"),
                         tp.status,
+                    ]
+                )
+
+            ws_pay = wb.create_sheet("Payments")
+            ws_pay.append(
+                [
+                    "ID",
+                    "ID временного пропуска",
+                    "YooKassa payment id",
+                    "Сумма (коп.)",
+                    "Сумма (руб)",
+                    "Статус",
+                    "Создан",
+                    "Оплачен (paid_at)",
+                ]
+            )
+            paid_payments = await session.execute(
+                select(TempPassYooKassaPayment)
+                .where(TempPassYooKassaPayment.status == "succeeded")
+                .order_by(TempPassYooKassaPayment.paid_at.desc().nulls_last())
+            )
+            for p in paid_payments.scalars():
+                paid_at_s = p.paid_at.strftime("%Y-%m-%d %H:%M:%S") if p.paid_at else ""
+                created_s = (
+                    p.created_at.strftime("%Y-%m-%d %H:%M:%S") if p.created_at else ""
+                )
+                ws_pay.append(
+                    [
+                        p.id,
+                        p.temporary_pass_id,
+                        p.yookassa_payment_id,
+                        p.amount_kopeks,
+                        round(p.amount_kopeks / 100, 2),
+                        p.status,
+                        created_s,
+                        paid_at_s,
+                    ]
+                )
+
+            ws_paid_truck = wb.create_sheet("Оплаченные пропуска")
+            paid_truck_headers = [
+                "ID пропуска",
+                "Тип владельца",
+                "ФИО",
+                "Участок/Компания",
+                "Должность",
+                "Категория веса",
+                "Категория длины",
+                "Номер авто",
+                "Марка",
+                "Груз",
+                "Цель",
+                "Дата визита",
+                "Статус пропуска",
+                "Сумма оплаты (руб)",
+                "Дата оплаты",
+            ]
+            ws_paid_truck.append(paid_truck_headers)
+
+            res_paid_stmt = (
+                select(TemporaryPass, TempPassYooKassaPayment, Resident.fio, Resident.plot_number)
+                .join(
+                    TempPassYooKassaPayment,
+                    TempPassYooKassaPayment.temporary_pass_id == TemporaryPass.id,
+                )
+                .join(Resident, TemporaryPass.resident_id == Resident.id)
+                .where(
+                    TemporaryPass.owner_type == "resident",
+                    TemporaryPass.vehicle_type == "truck",
+                    TemporaryPass.status == "approved",
+                    TempPassYooKassaPayment.status == "succeeded",
+                )
+            )
+            for row in await session.execute(res_paid_stmt):
+                tp, pay, fio, plot = row[0], row[1], row[2], row[3]
+                paid_at_s = (
+                    pay.paid_at.strftime("%Y-%m-%d %H:%M:%S") if pay.paid_at else ""
+                )
+                ws_paid_truck.append(
+                    [
+                        tp.id,
+                        "Резидент",
+                        fio,
+                        plot,
+                        "",
+                        tp.weight_category,
+                        tp.length_category,
+                        tp.car_number,
+                        tp.car_brand,
+                        tp.cargo_type,
+                        tp.purpose,
+                        tp.visit_date.strftime("%Y-%m-%d"),
+                        tp.status,
+                        round(pay.amount_kopeks / 100, 2),
+                        paid_at_s,
+                    ]
+                )
+
+            contr_paid_stmt = (
+                select(
+                    TemporaryPass,
+                    TempPassYooKassaPayment,
+                    Contractor.fio,
+                    Contractor.company,
+                    Contractor.position,
+                )
+                .join(
+                    TempPassYooKassaPayment,
+                    TempPassYooKassaPayment.temporary_pass_id == TemporaryPass.id,
+                )
+                .join(Contractor, TemporaryPass.contractor_id == Contractor.id)
+                .where(
+                    TemporaryPass.owner_type == "contractor",
+                    TemporaryPass.vehicle_type == "truck",
+                    TemporaryPass.status == "approved",
+                    TempPassYooKassaPayment.status == "succeeded",
+                )
+            )
+            for row in await session.execute(contr_paid_stmt):
+                tp, pay, fio, company, position = row[0], row[1], row[2], row[3], row[4]
+                paid_at_s = (
+                    pay.paid_at.strftime("%Y-%m-%d %H:%M:%S") if pay.paid_at else ""
+                )
+                ws_paid_truck.append(
+                    [
+                        tp.id,
+                        "Подрядчик",
+                        fio,
+                        company,
+                        position,
+                        tp.weight_category,
+                        tp.length_category,
+                        tp.car_number,
+                        tp.car_brand,
+                        tp.cargo_type,
+                        tp.purpose,
+                        tp.visit_date.strftime("%Y-%m-%d"),
+                        tp.status,
+                        round(pay.amount_kopeks / 100, 2),
+                        paid_at_s,
                     ]
                 )
 
