@@ -1,8 +1,6 @@
 import asyncio
-import datetime
 import logging
 
-from delete_temp_pass import scheduler
 from handlers import (
     handlers_admin_appeal,
     handlers_admin_manager_sending,
@@ -62,10 +60,6 @@ async def main() -> None:
         handlers_resident_appeal.router,
         handlers_for_all.router,
     )
-
-    current_day = datetime.datetime.now().day
-    loop = asyncio.get_event_loop()
-    loop.create_task(scheduler(current_day - 1))
 
     try:
         await dp.start_polling(bot, skip_updates=True)

@@ -97,7 +97,16 @@ async def start_self_pass(event: MessageCallback, context: BaseContext) -> None:
     kb = InlineKeyboardBuilder()
     kb.row(CallbackButton(text="Легковая", payload="self_vehicle_type_car"))
     kb.row(CallbackButton(text="Грузовая", payload="self_vehicle_type_truck"))
-    await edit_or_send_callback(bot, event, "Выберите тип машины:", kb)
+    await edit_or_send_callback(
+        bot,
+        event,
+        (
+            "❗️❗️❗️Внимание❗️❗️❗️\n"
+            "Газели и фургоны с грузом до 3,5 тонн оформляются как легковая машина.\n"
+            "Выберите тип машины:"
+        ),
+        kb,
+    )
     await context.set_state(TemporarySelfPassStates.CHOOSE_VEHICLE_TYPE)
 
 

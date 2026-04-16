@@ -1,6 +1,6 @@
 import asyncio
 import html as html_lib
-from datetime import datetime
+from datetime import date, datetime
 from io import BytesIO
 
 from maxapi import F, Router
@@ -37,6 +37,8 @@ from db.util import (
     update_user_blocked,
     update_user_unblocked,
 )
+from temporary_truck import temporary_pass_valid_until_date
+
 from handlers.handlers_admin_user_management import (
     get_admin_menu,
     get_manager_menu,
@@ -751,7 +753,13 @@ async def export_temporary_passes_to_excel(event: MessageCreated) -> None:
                 selectinload(TemporaryPass.contractor),
             )
             result = await session.execute(stmt)
-            passes = result.scalars().all()
+            today = date.today()
+            passes = [
+                p
+                for p in result.scalars().all()
+                if (u := temporary_pass_valid_until_date(p)) is not None
+                and u >= today
+            ]
 
         if not passes:
             await event.message.answer(text="📊 Нет данных о временных пропусках для выгрузки")

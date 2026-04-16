@@ -1,5 +1,6 @@
 # handlers_admin_statistic.py
 import asyncio
+import datetime
 from io import BytesIO
 
 import openpyxl
@@ -27,6 +28,7 @@ from db.models import (
 )
 from filters import IsAdminOrManager
 from max_helpers import callback_ack, edit_or_send_callback
+from temporary_truck import temporary_pass_valid_until_date
 
 router = Router(router_id="admin_statistic")
 router.filter(IsAdminOrManager())
@@ -240,6 +242,8 @@ async def export_statistics_to_xlsx(event: MessageCallback) -> None:
             ]
             ws_temp.append(headers)
 
+            today = datetime.date.today()
+
             res_stmt = (
                 select(TemporaryPass, Resident.fio, Resident.plot_number)
                 .join(Resident, TemporaryPass.resident_id == Resident.id)
@@ -248,6 +252,9 @@ async def export_statistics_to_xlsx(event: MessageCallback) -> None:
             res_temp_passes = await session.execute(res_stmt)
             for tp_data in res_temp_passes:
                 tp = tp_data[0]
+                until = temporary_pass_valid_until_date(tp)
+                if until is None or until < today:
+                    continue
                 ws_temp.append(
                     [
                         tp.id,
@@ -280,6 +287,9 @@ async def export_statistics_to_xlsx(event: MessageCallback) -> None:
             contr_temp_passes = await session.execute(contr_stmt)
             for tp_data in contr_temp_passes:
                 tp = tp_data[0]
+                until = temporary_pass_valid_until_date(tp)
+                if until is None or until < today:
+                    continue
                 ws_temp.append(
                     [
                         tp.id,
@@ -299,42 +309,6 @@ async def export_statistics_to_xlsx(event: MessageCallback) -> None:
                     ]
                 )
 
-            ws_pay = wb.create_sheet("Payments")
-            ws_pay.append(
-                [
-                    "ID",
-                    "ID временного пропуска",
-                    "YooKassa payment id",
-                    "Сумма (коп.)",
-                    "Сумма (руб)",
-                    "Статус",
-                    "Создан",
-                    "Оплачен (paid_at)",
-                ]
-            )
-            paid_payments = await session.execute(
-                select(TempPassYooKassaPayment)
-                .where(TempPassYooKassaPayment.status == "succeeded")
-                .order_by(TempPassYooKassaPayment.paid_at.desc().nulls_last())
-            )
-            for p in paid_payments.scalars():
-                paid_at_s = p.paid_at.strftime("%Y-%m-%d %H:%M:%S") if p.paid_at else ""
-                created_s = (
-                    p.created_at.strftime("%Y-%m-%d %H:%M:%S") if p.created_at else ""
-                )
-                ws_pay.append(
-                    [
-                        p.id,
-                        p.temporary_pass_id,
-                        p.yookassa_payment_id,
-                        p.amount_kopeks,
-                        round(p.amount_kopeks / 100, 2),
-                        p.status,
-                        created_s,
-                        paid_at_s,
-                    ]
-                )
-
             ws_paid_truck = wb.create_sheet("Оплаченные пропуска")
             paid_truck_headers = [
                 "ID пропуска",
@@ -343,11 +317,8 @@ async def export_statistics_to_xlsx(event: MessageCallback) -> None:
                 "Участок/Компания",
                 "Должность",
                 "Категория веса",
-                "Категория длины",
                 "Номер авто",
                 "Марка",
-                "Груз",
-                "Цель",
                 "Дата визита",
                 "Статус пропуска",
                 "Сумма оплаты (руб)",
@@ -382,11 +353,8 @@ async def export_statistics_to_xlsx(event: MessageCallback) -> None:
                         plot,
                         "",
                         tp.weight_category,
-                        tp.length_category,
                         tp.car_number,
                         tp.car_brand,
-                        tp.cargo_type,
-                        tp.purpose,
                         tp.visit_date.strftime("%Y-%m-%d"),
                         tp.status,
                         round(pay.amount_kopeks / 100, 2),
@@ -427,11 +395,8 @@ async def export_statistics_to_xlsx(event: MessageCallback) -> None:
                         company,
                         position,
                         tp.weight_category,
-                        tp.length_category,
                         tp.car_number,
                         tp.car_brand,
-                        tp.cargo_type,
-                        tp.purpose,
                         tp.visit_date.strftime("%Y-%m-%d"),
                         tp.status,
                         round(pay.amount_kopeks / 100, 2),

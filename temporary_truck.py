@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import html as html_lib
 
 from maxapi.enums.attachment import AttachmentType
@@ -10,13 +11,13 @@ from maxapi.types.attachments.buttons.callback_button import CallbackButton
 from maxapi.types.attachments.image import Image
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
-# Справочное фото типов ТС (загружено в MAX; повторная отправка по token / photo_id)
-VEHICLES_PHOTO_ID = 12349305851
+# Справочное фото типов ТС (Фото #1 в MAX; повторная отправка по token / photo_id)
+VEHICLES_PHOTO_ID = 13770305787
 VEHICLES_PHOTO_TOKEN = (
-    "6yROL47XCHx40zie9hJyTw1Q7YGy6shcFteTI+OQ1WPWph0lIjObgDyinOx7S10DJlpj8gTuUFVQpQljKu71NWsQxEg0umuy6QHocczr3xQ="
+    "x9qtfXkSzOVZoTAMZ4Nkj93uGttRllK27xpSNwFj4HsLk0tMLJCJbwq0H3WTkBM3Eq2QE1vZ136wjcmhUETPPWaN/3bBQDpYGPS88QCfcvE="
 )
 VEHICLES_PHOTO_URL = (
-    "https://i.oneme.ru/i?r=BTGBPUwtwgYUeoFhO7rESmr8197xVVO1Pg33sTYH-ocngftHWYU5h1yf1gZ3ruLDgOk"
+    "https://i.oneme.ru/i?r=BTGBPUwtwgYUeoFhO7rESmr8MhZesICpaXu3PvE1iilYkPtHWYU5h1yf1gZ3ruLDgOk"
 )
 
 
@@ -112,6 +113,18 @@ def is_new_truck_pass(tp) -> bool:
     if wc in TRUCK_CATEGORY_LABELS:
         return True
     return (tp.purpose or "") == "0"
+
+
+def temporary_pass_valid_until_date(tp) -> datetime.date | None:
+    """Последний день интервала «дата визита — …» (как у СБ: purpose — число дней от visit_date)."""
+    vd = getattr(tp, "visit_date", None)
+    if vd is None:
+        return None
+    purpose = (getattr(tp, "purpose", None) or "").strip()
+    days = 1
+    if purpose.isdigit():
+        days = int(purpose)
+    return vd + datetime.timedelta(days=days)
 
 
 def temp_pass_duration_label(purpose: str | None) -> str:

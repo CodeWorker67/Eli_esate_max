@@ -659,7 +659,14 @@ async def start_temporary_pass(event: MessageCallback, context: BaseContext):
             [CallbackButton(text="Легковая", payload="vehicle_type_car")],
             [CallbackButton(text="Грузовая", payload="vehicle_type_truck")]
         ])
-        await event.message.answer(text="Выберите тип машины:", attachments=[keyboard.as_markup()])
+        await event.message.answer(
+            text=(
+                "❗️❗️❗️Внимание❗️❗️❗️\n"
+                "Газели и фургоны с грузом до 3,5 тонн оформляются как легковая машина.\n"
+                "Выберите тип машины:"
+            ),
+            attachments=[keyboard.as_markup()],
+        )
         await context.set_state(TemporaryPassStates.CHOOSE_VEHICLE_TYPE)
     except Exception as e:
         await bot.send_message(user_id=RAZRAB, text=f'{event.callback.user.user_id} - {str(e)}')
