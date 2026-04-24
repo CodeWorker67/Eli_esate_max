@@ -24,6 +24,7 @@ from db.models import (
 )
 from db.util import get_active_admins_managers_sb_tg_ids, text_warning
 from max_helpers import callback_ack, fio_html, inline_kb, main_menu_inline_button_kb
+from staff_temp_pass_notify import staff_auto_approved_temp_pass_html
 from yookassa_api import get_payment_status
 
 logger = logging.getLogger(__name__)
@@ -42,9 +43,11 @@ def _temp_pass_followup_kb():
 
 async def _notify_resident_truck_paid_approved(
     user_id: int,
-    car_number: str,
+    tp: TemporaryPass,
     resident_fio: str,
+    payment_rubles: int,
 ) -> None:
+    car_number = (tp.car_number or "").upper()
     kb = _temp_pass_followup_kb()
     await bot.send_message(
         user_id=user_id,
@@ -52,14 +55,13 @@ async def _notify_resident_truck_paid_approved(
         attachments=[kb.as_markup()],
     )
     await bot.send_message(user_id=user_id, text=text_warning)
+    intro = f"Пропуск от резидента {fio_html(resident_fio, user_id)} одобрен автоматически"
+    staff_text = staff_auto_approved_temp_pass_html(intro, tp, payment_rubles=payment_rubles)
     for tg_id in await get_active_admins_managers_sb_tg_ids():
         try:
             await bot.send_message(
                 user_id=tg_id,
-                text=(
-                    f"Пропуск от резидента {fio_html(resident_fio, user_id)} на машину с номером "
-                    f"{html_lib.escape(car_number)} одобрен автоматически."
-                ),
+                text=staff_text,
                 parse_mode=ParseMode.HTML,
                 attachments=[main_menu_inline_button_kb().as_markup()],
             )
@@ -70,11 +72,13 @@ async def _notify_resident_truck_paid_approved(
 
 async def _notify_contractor_truck_paid_approved(
     user_id: int,
-    car_number: str,
+    tp: TemporaryPass,
     company: str,
     position: str,
     fio: str,
+    payment_rubles: int,
 ) -> None:
+    car_number = (tp.car_number or "").upper()
     kb = _temp_pass_followup_kb()
     await bot.send_message(
         user_id=user_id,
@@ -82,15 +86,16 @@ async def _notify_contractor_truck_paid_approved(
         attachments=[kb.as_markup()],
     )
     await bot.send_message(user_id=user_id, text=text_warning)
+    intro = (
+        f"Пропуск от подрядчика {fio_html(fio, user_id)}, "
+        f"{html_lib.escape(company)} — {html_lib.escape(position)} одобрен автоматически"
+    )
+    staff_text = staff_auto_approved_temp_pass_html(intro, tp, payment_rubles=payment_rubles)
     for tg_id in await get_active_admins_managers_sb_tg_ids():
         try:
             await bot.send_message(
                 user_id=tg_id,
-                text=(
-                    f"Пропуск от подрядчика {fio_html(fio, user_id)}, "
-                    f"{html_lib.escape(company)} — {html_lib.escape(position)}, "
-                    f"на машину с номером {html_lib.escape(car_number)} одобрен автоматически."
-                ),
+                text=staff_text,
                 parse_mode=ParseMode.HTML,
                 attachments=[main_menu_inline_button_kb().as_markup()],
             )
@@ -159,16 +164,17 @@ async def yk_check_truck_payment(event: MessageCallback):
                 tp.time_registration = now
                 await session.commit()
 
-                car_num = (tp.car_number or "").upper()
+                pay_rub = int(pay.amount_kopeks) // 100
                 if tp.owner_type == "resident" and resident:
-                    await _notify_resident_truck_paid_approved(uid, car_num, resident.fio or "")
+                    await _notify_resident_truck_paid_approved(uid, tp, resident.fio or "", pay_rub)
                 elif tp.owner_type == "contractor" and contractor:
                     await _notify_contractor_truck_paid_approved(
                         uid,
-                        car_num,
+                        tp,
                         contractor.company or "",
                         contractor.position or "",
                         contractor.fio or "",
+                        pay_rub,
                     )
                 await callback_ack(bot, event, "Оплата получена, пропуск подтверждён")
                 return

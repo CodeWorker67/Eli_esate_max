@@ -43,6 +43,10 @@ from date_parser import parse_date
 from db.models import Resident, AsyncSessionLocal, ResidentContractorRequest, PermanentPass, Contractor, TemporaryPass, \
     ContractorContractorRequest
 from db.util import get_active_admins_and_managers_tg_ids, get_active_admins_managers_sb_tg_ids, text_warning
+from staff_temp_pass_notify import (
+    payment_rubles_for_temp_pass,
+    staff_auto_approved_temp_pass_html,
+)
 from filters import IsResident, IsContractor
 from handlers.handlers_admin_user_management import is_valid_phone
 from temporary_truck import (
@@ -72,13 +76,27 @@ def _temporary_pass_followup_keyboard():
 async def _notify_contractor_temp_pass_auto_approved_delayed(
     user_id: int,
     delay_sec: int,
-    car_number: str,
-    company: str,
-    position: str,
-    fio: str,
+    temporary_pass_id: int,
 ) -> None:
     try:
         await asyncio.sleep(delay_sec)
+        async with AsyncSessionLocal() as session:
+            tp = await session.get(TemporaryPass, temporary_pass_id)
+            if not tp or tp.contractor_id is None:
+                return
+            contractor = await session.get(Contractor, tp.contractor_id)
+            if not contractor:
+                return
+            car_number = (tp.car_number or "").upper()
+            pay_rub = await payment_rubles_for_temp_pass(session, temporary_pass_id)
+            if pay_rub is None:
+                pay_rub = 0
+            intro = (
+                f"Пропуск от подрядчика {fio_html(contractor.fio, contractor.tg_id)}, "
+                f"{html_lib.escape(contractor.company or '')} — {html_lib.escape(contractor.position or '')} "
+                "одобрен автоматически"
+            )
+            staff_text = staff_auto_approved_temp_pass_html(intro, tp, payment_rubles=pay_rub)
         kb = _temporary_pass_followup_keyboard()
         await bot.send_message(
             user_id=user_id,
@@ -90,11 +108,7 @@ async def _notify_contractor_temp_pass_auto_approved_delayed(
             try:
                 await bot.send_message(
                     user_id=tg_id,
-                    text=(
-                        f"Пропуск от подрядчика {fio_html(fio, user_id)}, "
-                        f"{html_lib.escape(company)} — {html_lib.escape(position)}, "
-                        f"на машину с номером {html_lib.escape(car_number)} одобрен автоматически."
-                    ),
+                    text=staff_text,
                     parse_mode=ParseMode.HTML,
                     attachments=[main_menu_inline_button_kb().as_markup()],
                 )
@@ -614,36 +628,6 @@ async def process_comment_and_save(event: MessageCreated, context: BaseContext):
                 if count < MAX_TRUCK_PASSES:
                     status = "approved"
 
-        if status == "approved":
-            uid_msg = user_id_from_message(event)
-            if uid_msg is not None:
-                asyncio.create_task(
-                    _notify_contractor_temp_pass_auto_approved_delayed(
-                        uid_msg,
-                        random.randint(180, 720),
-                        (data.get("car_number") or "").upper(),
-                        contractor.company or "",
-                        contractor.position or "",
-                        contractor.fio or "",
-                    )
-                )
-        else:
-            tg_ids = await get_active_admins_and_managers_tg_ids()
-            for tg_id in tg_ids:
-                try:
-                    await bot.send_message(
-                        user_id=tg_id,
-                        text=(
-                            "Поступила заявка на временный пропуск от подрядчика "
-                            f"{fio_html(contractor.fio, contractor.tg_id)}.\n"
-                            "(Пропуска > Временные пропуска > На утверждении)"
-                        ),
-                        parse_mode=ParseMode.HTML,
-                        attachments=[main_menu_inline_button_kb().as_markup()],
-                    )
-                    await asyncio.sleep(0.05)
-                except:
-                    pass
         new_pass = TemporaryPass(
             owner_type="contractor",
             contractor_id=contractor.id,
@@ -665,6 +649,35 @@ async def process_comment_and_save(event: MessageCreated, context: BaseContext):
         async with AsyncSessionLocal() as session:
             session.add(new_pass)
             await session.commit()
+            await session.refresh(new_pass)
+
+        if status == "approved":
+            uid_msg = user_id_from_message(event)
+            if uid_msg is not None:
+                asyncio.create_task(
+                    _notify_contractor_temp_pass_auto_approved_delayed(
+                        uid_msg,
+                        random.randint(180, 720),
+                        new_pass.id,
+                    )
+                )
+        else:
+            tg_ids = await get_active_admins_and_managers_tg_ids()
+            for tg_id in tg_ids:
+                try:
+                    await bot.send_message(
+                        user_id=tg_id,
+                        text=(
+                            "Поступила заявка на временный пропуск от подрядчика "
+                            f"{fio_html(contractor.fio, contractor.tg_id)}.\n"
+                            "(Пропуска > Временные пропуска > На утверждении)"
+                        ),
+                        parse_mode=ParseMode.HTML,
+                        attachments=[main_menu_inline_button_kb().as_markup()],
+                    )
+                    await asyncio.sleep(0.05)
+                except:
+                    pass
     except Exception as e:
         await bot.send_message(user_id=RAZRAB, text=f'{user_id_from_message(event)} - {str(e)}')
         await asyncio.sleep(0.05)

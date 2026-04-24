@@ -42,6 +42,10 @@ from keyboards import resident_main_kb
 from date_parser import parse_date
 from db.models import Resident, AsyncSessionLocal, ResidentContractorRequest, PermanentPass, TemporaryPass
 from db.util import get_active_admins_and_managers_tg_ids, get_active_admins_managers_sb_tg_ids, text_warning
+from staff_temp_pass_notify import (
+    payment_rubles_for_temp_pass,
+    staff_auto_approved_temp_pass_html,
+)
 from filters import IsResident
 from handlers.handlers_admin_user_management import is_valid_phone
 from temporary_truck import (
@@ -71,12 +75,24 @@ def _temporary_pass_followup_keyboard():
 async def _notify_resident_temp_pass_auto_approved_delayed(
     user_id: int,
     delay_sec: int,
-    car_number: str,
-    resident_fio: str,
+    temporary_pass_id: int,
 ) -> None:
     """Задержка без блокировки поллинга: уведомления после sleep в фоне."""
     try:
         await asyncio.sleep(delay_sec)
+        async with AsyncSessionLocal() as session:
+            tp = await session.get(TemporaryPass, temporary_pass_id)
+            if not tp or tp.resident_id is None:
+                return
+            resident = await session.get(Resident, tp.resident_id)
+            if not resident:
+                return
+            car_number = (tp.car_number or "").upper()
+            pay_rub = await payment_rubles_for_temp_pass(session, temporary_pass_id)
+            if pay_rub is None:
+                pay_rub = 0
+            intro = f"Пропуск от резидента {fio_html(resident.fio, resident.tg_id)} одобрен автоматически"
+            staff_text = staff_auto_approved_temp_pass_html(intro, tp, payment_rubles=pay_rub)
         kb = _temporary_pass_followup_keyboard()
         await bot.send_message(
             user_id=user_id,
@@ -88,10 +104,7 @@ async def _notify_resident_temp_pass_auto_approved_delayed(
             try:
                 await bot.send_message(
                     user_id=tg_id,
-                    text=(
-                        f"Пропуск от резидента {fio_html(resident_fio, user_id)} на машину с номером "
-                        f"{html_lib.escape(car_number)} одобрен автоматически."
-                    ),
+                    text=staff_text,
                     parse_mode=ParseMode.HTML,
                     attachments=[main_menu_inline_button_kb().as_markup()],
                 )
@@ -1010,34 +1023,6 @@ async def process_comment_and_save(event: MessageCreated, context: BaseContext):
                 if count < MAX_TRUCK_PASSES:
                     status = "approved"
 
-        if status == "approved":
-            uid_msg = user_id_from_message(event)
-            if uid_msg is not None:
-                asyncio.create_task(
-                    _notify_resident_temp_pass_auto_approved_delayed(
-                        uid_msg,
-                        random.randint(180, 720),
-                        (data.get("car_number") or "").upper(),
-                        resident.fio or "",
-                    )
-                )
-        else:
-            tg_ids = await get_active_admins_and_managers_tg_ids()
-            for tg_id in tg_ids:
-                try:
-                    await bot.send_message(
-                        user_id=tg_id,
-                        text=(
-                            "Поступила заявка на временный пропуск от резидента "
-                            f"{fio_html(resident.fio, resident.tg_id)}.\n"
-                            "(Пропуска > Временные пропуска > На утверждении)"
-                        ),
-                        parse_mode=ParseMode.HTML,
-                        attachments=[main_menu_inline_button_kb().as_markup()],
-                    )
-                    await asyncio.sleep(0.05)
-                except:
-                    pass
         new_pass = TemporaryPass(
             owner_type="resident",
             resident_id=resident.id,
@@ -1059,6 +1044,35 @@ async def process_comment_and_save(event: MessageCreated, context: BaseContext):
         async with AsyncSessionLocal() as session:
             session.add(new_pass)
             await session.commit()
+            await session.refresh(new_pass)
+
+        if status == "approved":
+            uid_msg = user_id_from_message(event)
+            if uid_msg is not None:
+                asyncio.create_task(
+                    _notify_resident_temp_pass_auto_approved_delayed(
+                        uid_msg,
+                        random.randint(180, 720),
+                        new_pass.id,
+                    )
+                )
+        else:
+            tg_ids = await get_active_admins_and_managers_tg_ids()
+            for tg_id in tg_ids:
+                try:
+                    await bot.send_message(
+                        user_id=tg_id,
+                        text=(
+                            "Поступила заявка на временный пропуск от резидента "
+                            f"{fio_html(resident.fio, resident.tg_id)}.\n"
+                            "(Пропуска > Временные пропуска > На утверждении)"
+                        ),
+                        parse_mode=ParseMode.HTML,
+                        attachments=[main_menu_inline_button_kb().as_markup()],
+                    )
+                    await asyncio.sleep(0.05)
+                except:
+                    pass
     except Exception as e:
         await bot.send_message(
             user_id=RAZRAB,

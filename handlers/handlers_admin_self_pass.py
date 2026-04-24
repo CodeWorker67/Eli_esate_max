@@ -35,6 +35,7 @@ from max_helpers import (
     send_user,
     text_from_message,
 )
+from staff_temp_pass_notify import staff_auto_approved_temp_pass_html
 
 router = Router(router_id="admin_self_pass")
 router.filter(IsAdminOrManager())
@@ -218,7 +219,13 @@ async def process_self_truck_comment_save(event: MessageCreated, context: BaseCo
             )
             session.add(new_pass)
             await session.commit()
+            await session.refresh(new_pass)
 
+        staff_text = staff_auto_approved_temp_pass_html(
+            f"Пропуск от {owner_html} одобрен автоматически",
+            new_pass,
+            payment_rubles=0,
+        )
         await answer_message(
             event,
             f"✅ Временный пропуск на машину {data['car_number'].upper()} оформлен!",
@@ -230,11 +237,7 @@ async def process_self_truck_comment_save(event: MessageCreated, context: BaseCo
                 await send_user(
                     bot,
                     tg_id,
-                    text=(
-                        f"Пропуск от {owner_html} на машину с номером "
-                        f"{html_lib.escape((data.get('car_number') or '').upper())} "
-                        "одобрен автоматически.\n(Пропуска > Временные пропуска > Подтвержденные)"
-                    ),
+                    text=staff_text + "\n(Пропуска > Временные пропуска > Подтвержденные)",
                     kb=main_menu_inline_button_kb(),
                     parse_mode=ParseMode.HTML,
                 )
@@ -384,7 +387,13 @@ async def process_self_comment_and_save(event: MessageCreated, context: BaseCont
             )
             session.add(new_pass)
             await session.commit()
+            await session.refresh(new_pass)
 
+        staff_text = staff_auto_approved_temp_pass_html(
+            f"Пропуск от {owner_html} одобрен автоматически",
+            new_pass,
+            payment_rubles=0,
+        )
         await answer_message(
             event,
             f"✅ Временный пропуск на машину {data['car_number'].upper()} оформлен!",
@@ -396,11 +405,7 @@ async def process_self_comment_and_save(event: MessageCreated, context: BaseCont
                 await send_user(
                     bot,
                     tg_id,
-                    text=(
-                        f"Пропуск от {owner_html} на машину с номером "
-                        f"{html_lib.escape((data.get('car_number') or '').upper())} "
-                        "одобрен автоматически.\n(Пропуска > Временные пропуска > Подтвержденные)"
-                    ),
+                    text=staff_text + "\n(Пропуска > Временные пропуска > Подтвержденные)",
                     kb=main_menu_inline_button_kb(),
                     parse_mode=ParseMode.HTML,
                 )
