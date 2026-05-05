@@ -110,7 +110,6 @@ def get_admin_menu():
         [CallbackButton(text="🚪 Пропуска", payload="passes_menu")],
         [CallbackButton(text="🔍 Поиск пропуска", payload="search_pass")],
         [CallbackButton(text="📈Статистика", payload="statistics_menu")],
-        [CallbackButton(text="📨 Обращения в УК", payload="appeals_management")],
         [CallbackButton(text="📩 Выполнить рассылку", payload="posting")],
     ])
 

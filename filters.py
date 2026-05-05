@@ -115,3 +115,28 @@ class IsContractor(BaseFilter):
                 )
             )
             return result.scalar() is not None
+
+
+class IsResidentOrContractor(BaseFilter):
+    """Активный резидент или активный подрядчик (для общих пунктов главного меню)."""
+
+    async def __call__(self, event: UpdateUnion) -> bool:
+        uid = _user_id_from_event(event)
+        if uid is None:
+            return False
+        async with AsyncSessionLocal() as session:
+            r = await session.execute(
+                select(Resident).where(
+                    Resident.tg_id == uid,
+                    Resident.status == True,  # noqa: E712
+                )
+            )
+            if r.scalar() is not None:
+                return True
+            c = await session.execute(
+                select(Contractor).where(
+                    Contractor.tg_id == uid,
+                    Contractor.status == True,  # noqa: E712
+                )
+            )
+            return c.scalar() is not None

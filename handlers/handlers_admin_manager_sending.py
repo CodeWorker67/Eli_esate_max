@@ -46,7 +46,6 @@ def get_admin_menu_builder() -> InlineKeyboardBuilder:
     b.row(CallbackButton(text="🚪 Пропуска", payload="passes_menu"))
     b.row(CallbackButton(text="🔍 Поиск пропуска", payload="search_pass"))
     b.row(CallbackButton(text="📈Статистика", payload="statistics_menu"))
-    b.row(CallbackButton(text="📨 Обращения в УК", payload="appeals_management"))
     b.row(CallbackButton(text="📩 Выполнить рассылку", payload="posting"))
     return b
 
