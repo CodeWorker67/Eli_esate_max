@@ -15,7 +15,7 @@ router.filter(IsResidentOrContractor())
 
 UK_CONTACT_MESSAGE = (
     "Оставляйте обращения, пожелания, замечания\n\n"
-    "zagorodomlife@outlook.com."
+    "zagorodomlife@outlook.com"
 )
 
 
